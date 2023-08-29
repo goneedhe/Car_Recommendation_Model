@@ -1,0 +1,126 @@
+rm(list = ls())
+gc(reset = T )
+
+getwd()
+
+#*@post /recommendation
+#install.packages("dplyr")
+#install.packages("sqldf")
+#library(googlesheets)
+library(googlesheets4)
+library(gmailr)
+library(dplyr)
+library(mailR)
+library(sqldf)
+library(googleAuthR)
+library(dplyr)
+library(mailR)
+library(RPostgreSQL)
+library(devtools)
+library(tibble)
+library(googledrive)
+library(lubridate)
+library(readr)
+
+
+setwd("~/nidhi_goyal")
+rm(list = ls())
+gc(reset = T )
+
+#### Google sheet extraction ####
+
+gs4_auth(email =  "nidhi.goyal@olx.com")
+
+Input_Data <- read_sheet("18-kc7XnGsryBbgTLS3pI7CXU9bFX7ouFt8VjXUbZuS8",sheet = "Input")
+make = Input_Data$Make[1]
+model = Input_Data$Model[1]
+km = Input_Data$km[1]
+age = Input_Data$age[1]
+damages = Input_Data$damages[1]
+owners = Input_Data$number_of_owners[1]
+
+###### Importing CSVs #####
+
+delhi_profile <- read_csv("delhi_final.csv")
+#best_next_best <- read_csv("Delhi_best_next_best_cars.csv")
+car_count <- read_csv("Delhi_dealers_car_count_l3m_inactivity.csv")
+
+###########################
+car = paste(make,model,sep=" ")
+delhi_profile <- data.frame(delhi_profile)
+x <- delhi_profile[apply(delhi_profile, MARGIN = 1, FUN = function(x) {car %in% x}), ]
+
+if (nrow(x)==0)
+{
+  c0 <- read_csv("list_of_cars5_0.csv")
+  c1 <- read_csv("list_of_cars5_1.csv")
+  c2 <- read_csv("list_of_cars5_2.csv")
+  c3 <- read_csv("list_of_cars5_3.csv")
+  c4 <- read_csv("list_of_cars5_4.csv")
+  
+  c0=as.numeric(subset(c0[apply(c0, MARGIN = 1, FUN = function(x) {car %in% x}), ],select=c(5)))
+  c1=as.numeric(subset(c1[apply(c1, MARGIN = 1, FUN = function(x) {car %in% x}), ],select=c(5)))
+  c2=as.numeric(subset(c2[apply(c2, MARGIN = 1, FUN = function(x) {car %in% x}), ],select=c(5)))
+  c3=as.numeric(subset(c3[apply(c3, MARGIN = 1, FUN = function(x) {car %in% x}), ],select=c(5)))
+  c4=as.numeric(subset(c4[apply(c4, MARGIN = 1, FUN = function(x) {car %in% x}), ],select=c(5)))
+  list = list(c0,c1,c2,c3,c4)
+  max = max(unlist(list), na.rm=TRUE)
+  i = match(max,list)
+  
+  # get dealers in that particular cluster
+  x = as.data.frame(delhi_profile[delhi_profile$allotment == i,])
+}
+
+#colnames(x) <- c("...1", "mx_highest_bid_dealer_id","0", "1", "2", "3", "4", "5", "6", "7", "8","9", "car", "mx_target_price", "km", "age", "cubiccapacity", "damages", "allotment","numberofowners", "dealer_number", "name", "dealership_name", "dealer_city", "drm_name", "allotment", "l3m_activity_flag")
+
+x$mileage=x$mileage - km
+x$age=x$age-age
+x$damages=x$damages-damages
+x$numberofowners = x$numberofowners - owners
+
+standardise=function(k){
+  l=(k-min(k))/(max(k)-min(k))
+  return(l)
+}
+
+y = subset(x, select = c(mileage, age, damages, numberofowners,car) )
+y = as.data.frame(apply(y,2,standardise))
+y$damages[is.na(y$damages)]<-mean(x$damages)
+
+x$score= y$age^2+y$mileage^2+y$damages^2+y$numberofowners^2
+x$rank= rank(x$score)
+
+#y = as.data.frame(x[x$rank<126,])
+
+if (any(names(x) != car)){
+  x = as.data.frame(x[order(x[,25], x[,26]),])    
+  z = as.vector(subset(x,select=c(20,21,22,23,25)))
+}else{
+  #grep("mx_highest_bid_dealer_id",colnames(car_count)) =2
+  x = merge(x,subset(car_count,select=c(1,which(names(car_count)==car))),by="dealer_number")
+  x$proportion=subset(x,select=c(28))/x$car
+  #score should be minimum but proportion of that car should be maximum
+  #score should be minimum but proportion of other cars should also be minimum
+  x$final_score=(x$score+1-x$proportion+y$car)/3
+  
+  x = as.data.frame(x[order( x[,25], x[,30] ),])
+  #names(z)[21] <- 'proportion'
+  z = as.vector(subset(x,select=c(20,21,22,23,25)))
+  
+}
+
+
+########  write data to googlesheet ########
+
+gs4_auth(email = "nidhi.goyal@olx.com")
+
+range_write("18-kc7XnGsryBbgTLS3pI7CXU9bFX7ouFt8VjXUbZuS8",
+            z,sheet = "Output");
+write_sheet(data = z, ss = "18-kc7XnGsryBbgTLS3pI7CXU9bFX7ouFt8VjXUbZuS8", sheet = "Output")
+
+
+
+
+
+
+
